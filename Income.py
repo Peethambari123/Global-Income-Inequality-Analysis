@@ -2,107 +2,82 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Global Income Inequality Dashboard", layout="wide")
+st.set_page_config(page_title="Global Inequality Dashboard",
+                   page_icon="🌍",
+                   layout="wide")
 
-st.title("🌍 Global Income Inequality Analysis Dashboard (2010-2024)")
-st.write("Upload the WIID dataset and analyze global inequality trends using interactive charts.")
+# Load dataset
+df = pd.read_csv("WIID_Final_Cleaned_2010_2024.csv")
 
-# ================= FILE UPLOADER ====================
+# Display Columns for debugging
+st.sidebar.write("📌 Dataset Columns:")
+st.sidebar.write(list(df.columns))
 
-uploaded_file = st.file_uploader("📂 Upload WIID Dataset CSV File", type=["csv"])
+# Rename columns based on dataset (change if needed)
+df.rename(columns={
+    "Country": "country",
+    "Year": "year",
+    "Gini": "gini",
+    "GDP_Per_Capita": "gdp",
+    "Region": "region",
+    "Palma_Ratio": "palma",
+    "Income_Group": "income_group"
+}, inplace=True)
 
-if uploaded_file is not None:
+# Sidebar
+st.sidebar.title("🌍 Global Inequality Dashboard")
 
-    # Try different separators
-    try:
-        df = pd.read_csv(uploaded_file)
-    except:
-        try:
-            df = pd.read_csv(uploaded_file, sep=";")
-        except:
-            df = pd.read_csv(uploaded_file, sep="\t")
+region_filter = st.sidebar.selectbox("Select Region", options=["All"] + list(df["region"].unique()))
+country_filter = st.sidebar.multiselect("Select Countries", options=df["country"].unique())
+income_filter = st.sidebar.multiselect("Select Income Groups", options=df["income_group"].unique())
 
-    st.success("Dataset uploaded successfully! 🎉")
+# Apply Filters
+data = df.copy()
+if region_filter != "All":
+    data = data[data["region"] == region_filter]
+if len(country_filter) > 0:
+    data = data[data["country"].isin(country_filter)]
+if len(income_filter) > 0:
+    data = data[data["income_group"].isin(income_filter)]
 
-    # Show column names
-    st.write("### 🧾 Columns in Dataset:")
-    st.write(df.columns.tolist())
+# KPIs
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Countries", len(data["country"].unique()))
+col2.metric("Avg Gini Index", f"{data['gini'].mean():.2f}")
+col3.metric("Avg GDP per Capita", f"{data['gdp'].mean():,.2f} $")
+col4.metric("Avg Palma Ratio", f"{data['palma'].mean():.2f}")
 
-    # Preview data
-    st.write("### 🔍 Dataset Preview:")
-    st.dataframe(df.head())
+st.markdown("### 🌎 Global Inequality Analysis")
 
-    # ================= FILTERS ========================
+# Charts
+colA, colB = st.columns(2)
 
-    st.sidebar.header("🔎 FILTER OPTIONS")
+with colA:
+    st.subheader("World Map - Gini Index")
+    fig_map = px.choropleth(data,
+                            locations="country",
+                            locationmode="country names",
+                            color="gini",
+                            hover_name="country",
+                            title="Gini Index by Country",
+                            color_continuous_scale="Viridis")
+    st.plotly_chart(fig_map, use_container_width=True)
 
-    # Detect country column automatically
-    possible_country_cols = ["Country", "country", "Nation", "Area", "region", "Region", "Country_Name"]
-    country_col = None
+with colB:
+    st.subheader("Countries by Income Class")
+    fig_pie = px.pie(data, names="income_group", title="Country Income Group Share")
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-    for col in possible_country_cols:
-        if col in df.columns:
-            country_col = col
-            break
+st.subheader("📈 Trends Over Time")
+fig_trend = px.line(data, x="year", y="gini", color="country", title="Gini Trend Over Years")
+st.plotly_chart(fig_trend, use_container_width=True)
 
-    if country_col is None:
-        st.error("❌ No valid Country column found. Please check dataset.")
-        st.stop()
+st.subheader("Relationship Between GDP & Inequality")
+fig_scatter = px.scatter(data, x="gdp", y="gini", color="income_group",
+                         size="palma", title="GDP vs Gini Index")
+st.plotly_chart(fig_scatter, use_container_width=True)
 
-    # Country filter
-    selected_countries = st.sidebar.multiselect(
-        "Select Countries",
-        df[country_col].unique()
-    )
-
-    # Detect year column automatically
-    if "Year" in df.columns:
-        min_year = int(df["Year"].min())
-        max_year = int(df["Year"].max())
-        year_range = st.sidebar.slider("Select Year Range", min_year, max_year, (min_year, max_year))
-    else:
-        st.error("❌ 'Year' column missing in dataset.")
-        st.stop()
-
-    # Filter dataset
-    filtered_df = df[
-        ((df[country_col].isin(selected_countries)) if selected_countries else True)
-        & (df["Year"] >= year_range[0]) & (df["Year"] <= year_range[1])
-    ]
-
-    st.write("### 📊 Filtered Data")
-    st.dataframe(filtered_df)
-
-    # ================= CHARTS ========================
-
-    # Gini trend line chart
-    if "Gini" in df.columns:
-        st.write("### 📈 Gini Coefficient Trend Over Time")
-        fig1 = px.line(filtered_df, x="Year", y="Gini", color=country_col, markers=True)
-        st.plotly_chart(fig1, use_container_width=True)
-    else:
-        st.warning("⚠ 'Gini' column not found. Cannot show inequality trend chart.")
-
-    # Average Gini Bar chart
-    if "Gini" in df.columns:
-        st.write("### 📊 Average Gini by Country")
-        avg_gini = filtered_df.groupby(country_col)["Gini"].mean().reset_index()
-        fig2 = px.bar(avg_gini, x=country_col, y="Gini", text_auto=True)
-        st.plotly_chart(fig2, use_container_width=True)
-
-    # Summary statistics
-    st.write("### 📑 Statistical Summary")
-    st.write(filtered_df.describe())
-
-    # Download filtered file
-    st.write("### ⬇ Download Filtered Dataset")
-    st.download_button(
-        label="Download CSV",
-        data=filtered_df.to_csv(index=False).encode("utf-8"),
-        file_name="Filtered_Inequality_Data.csv",
-        mime="text/csv"
-    )
-
-    st.success("Dashboard Ready 🎉")
-else:
-    st.info("👆 Please upload the dataset to begin analysis.")
+st.subheader("Top Countries by Highest Inequality")
+top = data.groupby("country")["gini"].mean().sort_values(ascending=False).head(10).reset_index()
+fig_bar = px.bar(top, x="country", y="gini", title="Highest Gini Countries")
+st.plotly_chart(fig_bar, use_container_width=True)
